@@ -9,11 +9,20 @@ exports.createTitlesForUser = async (req, res) => {
         let titleDoc = await TitlesModel.findOne({ clerkRef });
         let user = await User.findOne({ clerkRef });
 
+        // Add user validation
+        if (!user || !user.niche || !user.linkedinAudience || !user.narative) {
+            return res.status(400).json({
+                success: false,
+                error: 'User profile is incomplete. Please update your profile first.'
+            });
+        }
+
         if (!titleDoc) {
             titleDoc = new TitlesModel({
                 clerkRef,
                 categories: [],
-                customTitles: []
+                customTitles: [],
+                generationStage: true // Start with true
             });
         }
 
@@ -40,7 +49,6 @@ exports.createTitlesForUser = async (req, res) => {
                     linkedinAudience: user.linkedinAudience,
                     narative: user.narative
                 };
-
                 const generatedTitles = await generateTitlesWithAgent(userInfo);
                 
                 // Merge AI-generated categories with existing custom titles
@@ -57,10 +65,11 @@ exports.createTitlesForUser = async (req, res) => {
                 
                 titleDoc.generationStage = false;
             } catch (genError) {
-                console.error('Title generation error:', genError);
+                console.error('Title generation error details:', genError); // Enhanced error logging
                 return res.status(500).json({
                     success: false,
-                    error: 'Failed to generate AI titles'
+                    error: 'Failed to generate AI titles',
+                    details: genError.message
                 });
             }
         }
@@ -87,21 +96,32 @@ exports.createTitlesForUser = async (req, res) => {
         console.error('Error in createTitlesForUser:', error);
         res.status(500).json({ 
             success: false, 
-            error: error.message 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
 
 exports.getTitlesForUser = async (req, res) => {
   try {
-    const { clerkRef } = req.query;
+    const { clerkRef } = req.body;
     if (!clerkRef) {
-      return res.status(400).json({ success: false, error: 'Missing clerkRef in query.' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing clerkRef in request body.' 
+      });
     }
 
-    const titleDoc = await TitlesModel.findOne({ clerkRef });
-    if (!titleDoc) {
-      return res.status(404).json({ success: false, error: 'No titles found for this user.' });
+    const titleDoc = await TitlesModel.findOne({ 
+      clerkRef,
+      generationStage: false // Only get documents where generation is complete
+    });
+
+    if (!titleDoc || !titleDoc.categories || titleDoc.categories.length === 0) {
+      return res.json({ 
+        success: false,
+        message: 'No generated titles found'
+      });
     }
 
     return res.json({
@@ -111,6 +131,9 @@ exports.getTitlesForUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching titles:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 };

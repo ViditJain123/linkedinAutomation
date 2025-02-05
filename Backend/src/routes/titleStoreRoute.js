@@ -3,7 +3,8 @@ const router = express.Router();
 const { createTitlesForUser, getTitlesForUser } = require('../controllers/titleStoreController');
 // ...existing code...
 
-router.get('/', getTitlesForUser);
+// Changed GET to POST: was: router.get('/', getTitlesForUser);
+router.post('/gettitles', getTitlesForUser);
 router.post('/generateTitles', createTitlesForUser);
 
 module.exports = router;

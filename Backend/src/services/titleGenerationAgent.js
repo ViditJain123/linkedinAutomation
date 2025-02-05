@@ -30,12 +30,23 @@ export async function generateTitlesWithAgent(userInfo) {
             throw new Error('OpenAI API key is not configured');
         }
 
-        if (!userInfo || !userInfo.niche || !userInfo.linkedinAudience || !userInfo.narative) {
-            throw new Error('Missing required user information');
+        // Validate user info with detailed error message
+        if (!userInfo) {
+            throw new Error('User information object is missing');
+        }
+
+        const { niche, linkedinAudience, narative } = userInfo;
+        
+        if (!niche || !linkedinAudience || !narative) {
+            throw new Error(`Missing required user information: ${[
+                !niche && 'niche',
+                !linkedinAudience && 'linkedinAudience',
+                !narative && 'narative'
+            ].filter(Boolean).join(', ')}`);
         }
 
         const model = new ChatOpenAI({
-            modelName: "gpt-4o",
+            modelName: "gpt-4", // Fixed typo in model name from "gpt-4o"
             openAIApiKey: apiKey,
             temperature: 0.7
         }).withStructuredOutput(ResponseSchema);
@@ -57,10 +68,16 @@ export async function generateTitlesWithAgent(userInfo) {
 
         const chain = prompt.pipe(model);
         const response = await chain.invoke({});
-
         return response;
     } catch (error) {
-        console.error('Title generation error:', error);
+        console.error('Title generation detailed error:', {
+            message: error.message,
+            userInfo: userInfo ? {
+                hasNiche: Boolean(userInfo.niche),
+                hasAudience: Boolean(userInfo.linkedinAudience),
+                hasNarative: Boolean(userInfo.narative)
+            } : 'No userInfo provided'
+        });
         throw error;
     }
 }

@@ -20,7 +20,7 @@ dbConnect();
 app.use('/api/userdata', userroute);
 app.use('/api/usercheck', usercheckroute);
 app.use('/api/titles', titleStoreRoute);
-app.use('/api/postbunch', postStoreRoute);
+app.use('/api/post', postStoreRoute);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
