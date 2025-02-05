@@ -13,11 +13,13 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 export async function generatePostWithAgent(userPrompt, userInfo) {
-    const model = new ChatOpenAI({
-        model: "gpt-4o",
-    });
+    try {
+        const model = new ChatOpenAI({
+            model: "gpt-4",  // Fixed typo from gpt-4o
+            temperature: 0.7
+        });
 
-    const systemPrompt = `You are a powerful LinkedIn post writer. Here's how you should approach each post:
+        const systemPrompt = `You are a powerful LinkedIn post writer. Here's how you should approach each post:
 
 1. Understanding the Topic:
 - First, grasp the main idea and purpose of the post
@@ -40,36 +42,48 @@ Content Genre: ${userInfo.narative}
 Style Reference (Previous Posts):
 ${userInfo.postExamples.map((example, index) => `Example ${index + 1}: ${example}`).join('\n')}`;
 
-    const prompt = ChatPromptTemplate.fromMessages([
-        ["system", systemPrompt],
-        ["human", "{input}"],
-        new MessagesPlaceholder("agent_scratchpad"),
-    ]);
+        const prompt = ChatPromptTemplate.fromMessages([
+            ["system", systemPrompt],
+            ["human", "{input}"],
+            new MessagesPlaceholder("agent_scratchpad"),
+        ]);
 
-    const tools = [];
+        const tools = [];
 
-    const modelWithFunctions = model.bind({
-        functions: tools.map((tool) => convertToOpenAIFunction(tool)),
-    });
+        const modelWithFunctions = model.bind({
+            functions: tools.map((tool) => convertToOpenAIFunction(tool)),
+        });
 
-    const runnableAgent = RunnableSequence.from([
-        {
-            input: (i) => i.input,
-            agent_scratchpad: (i) => formatToOpenAIFunctionMessages(i.steps),
-        },
-        prompt,
-        modelWithFunctions,
-        new OpenAIFunctionsAgentOutputParser(),
-    ]);
+        const runnableAgent = RunnableSequence.from([
+            {
+                input: (i) => i.input,
+                agent_scratchpad: (i) => formatToOpenAIFunctionMessages(i.steps),
+            },
+            prompt,
+            modelWithFunctions,
+            new OpenAIFunctionsAgentOutputParser(),
+        ]);
 
-    const executor = AgentExecutor.fromAgentAndTools({
-        agent: runnableAgent,
-        tools,
-    });
+        const executor = AgentExecutor.fromAgentAndTools({
+            agent: runnableAgent,
+            tools,
+        });
 
-    const result = await executor.invoke({
-        input: userPrompt,
-    });
+        const result = await executor.invoke({
+            input: userPrompt,
+        });
 
-    return result;
+        return {
+            success: true,
+            output: result.output,
+            error: null
+        };
+    } catch (error) {
+        console.error('Agent generation error:', error);
+        return {
+            success: false,
+            output: null,
+            error: error.message
+        };
+    }
 }

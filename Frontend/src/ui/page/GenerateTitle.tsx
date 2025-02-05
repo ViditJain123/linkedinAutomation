@@ -29,8 +29,12 @@ interface Niche {
 
 interface CategoryData {
   name: string;
-  titles: { title: string; selected: boolean; _id?: string }[]; // change from string[] to object[]
-  _id?: string;
+  titles: { 
+    title: string; 
+    selected: boolean; 
+    _id: string;
+  }[];
+  _id: string;
 }
 
 const GenerateTitle: React.FC = () => {
@@ -44,29 +48,63 @@ const GenerateTitle: React.FC = () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const response = await fetch(
-        `http://localhost:3000/api/titles?clerkRef=${user.id}`, 
-        { method: 'GET' }
-      );
-      if (!response.ok) throw new Error(`Fetch failed. Status: ${response.status}`);
-      const data = await response.json();
-      setApiCategories(data.categories); // Save API categories
-      console.log(user.id)
-      // Flatten categories using the optional _id from the response
-      const fetchedTitles = data.categories.flatMap((cat: CategoryData) =>
-        cat.titles.map((titleObj, idx) => ({
-          // Use the title's MongoDB _id if available, else fall back to the existing logic
-          id: titleObj._id ?? (cat._id ? `${cat._id}-${idx}` : idx),
-          text: titleObj.title,
-          niche: cat.name,
-          selected: titleObj.selected || false,
-        }))
-      );
-      setAllTitles(fetchedTitles);
-      // Pre-populate selectedTitles based on the fetched selected flag
-      setSelectedTitles(fetchedTitles.filter((t: TitleItem) => t.selected).map((t: TitleItem) => t.id));
+      // First attempt to get existing titles
+      const getTitlesResponse = await fetch('http://localhost:3000/api/titles/gettitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clerkRef: user.id })
+      });
+      
+      const data = await getTitlesResponse.json();
+
+      // If success is true and we have titles with generationStage false
+      if (data.success && data.categories?.length > 0) {
+        setApiCategories(data.categories);
+        const fetchedTitles = data.categories.flatMap((cat: CategoryData) =>
+          (cat.titles || []).map(titleObj => ({
+            id: titleObj._id,
+            text: titleObj.title,
+            niche: cat.name, // Make sure niche is set to category name
+            selected: titleObj.selected || false
+          }))
+        );
+        setAllTitles(fetchedTitles);
+        setSelectedTitles(fetchedTitles.filter((t: TitleItem) => t.selected).map((t: TitleItem) => t.id));
+      } else {
+        // If no existing titles, generate new ones
+        const generateResponse = await fetch('http://localhost:3000/api/titles/generateTitles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            clerkRef: user.id,
+            customTitles: [],
+            updateCustomOnly: false
+          }),
+        });
+
+        if (!generateResponse.ok) {
+          throw new Error('Failed to generate titles');
+        }
+
+        const generatedData = await generateResponse.json();
+        setApiCategories(generatedData.categories);
+        
+        const generatedTitles = generatedData.categories.flatMap((cat: CategoryData) =>
+          (cat.titles || []).map(titleObj => ({
+            id: titleObj._id,
+            text: titleObj.title,
+            niche: cat.name, // Make sure niche is set to category name
+            selected: titleObj.selected || false
+          }))
+        );
+        
+        setAllTitles(generatedTitles);
+        setSelectedTitles([]); // Reset selections for new titles
+      }
     } catch (error) {
-      console.error(error);
+      console.error('Error fetching/generating titles:', error);
+      setApiCategories([]);
+      setAllTitles([]);
     } finally {
       setLoading(false);
     }
@@ -76,15 +114,25 @@ const GenerateTitle: React.FC = () => {
     fetchTitles();
   }, [fetchTitles]);
 
-  const niches: Niche[] = [
-    { id: 'tech', name: 'Technology', icon: <FiMonitor className="w-5 h-5" /> },
-    { id: 'business', name: 'Business', icon: <FiBriefcase className="w-5 h-5" /> },
-    { id: 'marketing', name: 'Marketing', icon: <FiBarChart2 className="w-5 h-5" /> },
-    { id: 'finance', name: 'Finance', icon: <FiDollarSign className="w-5 h-5" /> },
-    { id: 'health', name: 'Health', icon: <FiHeart className="w-5 h-5" /> },
-    { id: 'education', name: 'Education', icon: <FiBook className="w-5 h-5" /> },
-    { id: 'custom', name: 'Custom Titles', icon: <FiStar className="w-5 h-5" /> },
-  ];
+  const niches: Niche[] = useMemo(() => {
+    if (!apiCategories?.length) return [];
+    
+    const defaultIcons = {
+      'Technology': <FiMonitor className="w-5 h-5" />,
+      'Business': <FiBriefcase className="w-5 h-5" />,
+      'Marketing': <FiBarChart2 className="w-5 h-5" />,
+      'Finance': <FiDollarSign className="w-5 h-5" />,
+      'Health': <FiHeart className="w-5 h-5" />,
+      'Education': <FiBook className="w-5 h-5" />,
+      'Custom': <FiStar className="w-5 h-5" />
+    };
+
+    return apiCategories.map(cat => ({
+      id: cat._id || '',
+      name: cat.name || '',
+      icon: defaultIcons[cat.name as keyof typeof defaultIcons] || <FiStar className="w-5 h-5" />
+    }));
+  }, [apiCategories]);
 
   const [selectedTitles, setSelectedTitles] = useState<(string | number)[]>([]);
   // Keep track of which page (0 or 1) the user is on
@@ -99,9 +147,11 @@ const GenerateTitle: React.FC = () => {
 
   // Use useMemo to prevent unnecessary recalculation
   const filteredTitles = useMemo(() => {
-    if (!selectedNiche) return [...customTitles, ...allTitles];
-    if (selectedNiche === 'custom') return customTitles;
-    return [...customTitles, ...allTitles].filter(title => title.niche === selectedNiche);
+    const titles = [...(customTitles || []), ...(allTitles || [])];
+    if (!selectedNiche) return titles;
+    if (selectedNiche === 'Custom') return customTitles || [];
+    // Changed to filter by category name instead of ID
+    return titles.filter(title => title.niche === selectedNiche);
   }, [selectedNiche, customTitles, allTitles]);
 
   // Items per page constant
@@ -309,7 +359,7 @@ const GenerateTitle: React.FC = () => {
                 {apiCategories.map(cat => (
                   <button
                     key={cat._id}
-                    onClick={() => setSelectedNiche(cat.name)}
+                    onClick={() => setSelectedNiche(cat.name)} // Changed to use category name
                     className={`w-full text-left px-4 py-3 rounded-lg transition-all
                       ${selectedNiche === cat.name 
                         ? 'bg-blue-50 text-blue-700 font-medium shadow-sm' 
@@ -348,7 +398,7 @@ const GenerateTitle: React.FC = () => {
                   onClick={handleRandomSelect}
                   className="flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md"
                 >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0  0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                   </svg>
                   Random Selection

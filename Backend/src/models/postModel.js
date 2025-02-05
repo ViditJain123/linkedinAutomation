@@ -41,16 +41,19 @@ const postSchema = new Schema({
 });
 
 const postBunchSchema = new Schema({
-    posts: [postSchema],
-    status: {
-        type: Boolean,
-        required: true,
-        default: false
-    },
     clerkRef: {
         type: String,
         required: true
     },
+    posts: [postSchema],
+    status: {
+        type: Boolean,
+        default: false
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
 });
 
 const Post = mongoose.model('Post', postSchema);
